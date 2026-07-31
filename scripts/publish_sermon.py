@@ -135,7 +135,7 @@ def summarize_with_ai(transcript, title, scripture, date_str):
 """
 
     response = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-haiku-4-5-20251001",
         max_tokens=4000,
         messages=[{"role": "user", "content": prompt}]
     )
@@ -144,7 +144,14 @@ def summarize_with_ai(transcript, title, scripture, date_str):
     # JSON 부분만 추출
     m = re.search(r'\{[\s\S]+\}', text)
     if m:
-        return json.loads(m.group())
+        raw = m.group()
+        # 제어 문자 제거 (줄바꿈/탭 제외)
+        raw = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', raw)
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            # strict=False로 재시도
+            return json.loads(raw, strict=False)
     raise ValueError("AI 응답에서 JSON을 찾을 수 없습니다")
 
 

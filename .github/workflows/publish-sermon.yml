@@ -1,0 +1,37 @@
+name: 설교 자동 게시
+
+on:
+  schedule:
+    # 매주 월요일 KST 오전 9시 (UTC 일요일 밤 12시)
+    - cron: '0 0 * * 1'
+  workflow_dispatch: # 수동 실행도 가능
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install yt-dlp youtube-transcript-api anthropic
+
+      - name: Run publish script
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python scripts/publish_sermon.py
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No new sermons to publish"
+          else
+            git commit -m "auto: 새 설교 말씀 게시"
+            git push
+          fi
