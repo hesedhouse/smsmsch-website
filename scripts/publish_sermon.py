@@ -378,12 +378,12 @@ def main():
     print("=" * 40)
     print("YouTube 채널에서 최근 영상을 확인합니다...\n")
 
-    videos = get_recent_videos(5)
+    process_all = "--all" in args
+    limit = 200 if process_all else 5
+    videos = get_recent_videos(limit)
     published = get_published_ids()
 
-    process_all = "--all" in args
-
-    new_videos = [v for v in videos if v["id"] not in published] if not process_all else videos
+    new_videos = [v for v in videos if v["id"] not in published]
 
     if not new_videos:
         print("새로운 설교 영상이 없습니다.")
