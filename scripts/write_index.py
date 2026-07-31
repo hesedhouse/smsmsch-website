@@ -1,4 +1,7 @@
-<!DOCTYPE html>
+"""index.html을 Python으로 직접 쓰기 (네트워크 드라이브 truncation 방지)"""
+import os
+
+HTML = r"""<!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
@@ -134,4 +137,11 @@
   </footer>
   <script src="js/main.js"></script>
 </body>
-</html>
+</html>"""
+
+target = os.path.join("Z:", os.sep, "hesedcorp", "98_hesedAI", "_작업_교회웹사이트", "index.html")
+with open(target, "w", encoding="utf-8") as f:
+    f.write(HTML)
+    f.flush()
+    os.fsync(f.fileno())
+print(f"Written {os.path.getsize(target)} bytes to {target}")
