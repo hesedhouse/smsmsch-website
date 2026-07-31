@@ -1,0 +1,208 @@
+/* ===== Blog Post Page ===== */
+.post {
+  padding-top: 100px;
+  padding-bottom: 80px;
+}
+
+.post-article {
+  max-width: 740px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* Header */
+.post-back {
+  display: inline-block;
+  font-size: 0.9rem;
+  color: var(--primary);
+  margin-bottom: 24px;
+  transition: opacity 0.2s;
+}
+.post-back:hover { opacity: 0.7; }
+
+.post-header {
+  margin-bottom: 48px;
+  padding-bottom: 32px;
+  border-bottom: 1px solid var(--gray-200);
+}
+.post-date {
+  font-size: 0.9rem;
+  color: var(--gray-400);
+  margin-bottom: 12px;
+}
+.post-header h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--primary-dark);
+  line-height: 1.4;
+  margin-bottom: 16px;
+}
+.post-meta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.post-scripture {
+  display: inline-block;
+  padding: 4px 14px;
+  border-radius: 50px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  background: var(--primary-light);
+  color: var(--primary);
+}
+.post-preacher {
+  font-size: 0.9rem;
+  color: var(--gray-500);
+  display: flex;
+  align-items: center;
+}
+
+/* Key Messages */
+.post-key-messages {
+  background: var(--primary-light);
+  border-radius: var(--radius);
+  padding: 28px 32px;
+  margin-bottom: 40px;
+  border-left: 4px solid var(--primary);
+}
+.post-key-messages h2 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--primary-dark);
+  margin-bottom: 16px;
+}
+.post-key-messages ol {
+  list-style: decimal;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.post-key-messages li {
+  font-size: 0.95rem;
+  color: var(--gray-600);
+  line-height: 1.7;
+}
+
+/* Body */
+.post-body h2 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--primary-dark);
+  margin-bottom: 24px;
+}
+.post-body h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--primary-dark);
+  margin-top: 36px;
+  margin-bottom: 14px;
+  padding-left: 14px;
+  border-left: 3px solid var(--accent);
+}
+.post-body p {
+  font-size: 1rem;
+  color: var(--gray-600);
+  line-height: 1.85;
+  margin-bottom: 16px;
+}
+.post-body blockquote {
+  background: var(--gray-50);
+  border-left: 4px solid var(--primary);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 20px 24px;
+  margin: 20px 0;
+  font-size: 0.95rem;
+  color: var(--gray-800);
+  line-height: 1.8;
+  font-style: italic;
+}
+.post-body blockquote cite {
+  display: block;
+  margin-top: 8px;
+  font-size: 0.85rem;
+  color: var(--primary);
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Scriptures */
+.post-scriptures {
+  margin-top: 48px;
+  padding-top: 32px;
+  border-top: 1px solid var(--gray-200);
+}
+.post-scriptures h2 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--primary-dark);
+  margin-bottom: 16px;
+}
+.post-scriptures ul {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 24px;
+}
+.post-scriptures li {
+  font-size: 0.9rem;
+  color: var(--gray-600);
+  line-height: 1.6;
+  padding: 4px 0;
+}
+
+/* Reflection */
+.post-reflection {
+  margin-top: 36px;
+  background: linear-gradient(135deg, #EBF8FF 0%, #F0FFF4 100%);
+  border-radius: var(--radius);
+  padding: 28px 32px;
+}
+.post-reflection h2 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--primary-dark);
+  margin-bottom: 16px;
+}
+.post-reflection ol {
+  list-style: decimal;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.post-reflection li {
+  font-size: 0.95rem;
+  color: var(--gray-600);
+  line-height: 1.7;
+}
+
+/* Video Link */
+.post-video {
+  margin-top: 36px;
+  text-align: center;
+}
+.post-video a {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 32px;
+  background: #FF0000;
+  color: white;
+  border-radius: 50px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: all var(--transition);
+}
+.post-video a:hover {
+  background: #CC0000;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(255,0,0,0.2);
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .post-header h1 { font-size: 1.5rem; }
+  .post-scriptures ul { grid-template-columns: 1fr; }
+  .post-key-messages, .post-reflection { padding: 20px; }
+}

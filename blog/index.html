@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>설교말씀 - 생명샘명성교회</title>
+  <meta name="description" content="생명샘명성교회 주일설교 내용 정리">
+  <link rel="icon" href="../images/logo.jpg" type="image/jpeg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+  <nav class="navbar scrolled">
+    <div class="nav-container">
+      <a href="../" class="nav-logo" style="color:var(--primary-dark)">
+        <img src="../images/logo.jpg" alt="생명샘명성교회 로고">
+        <span>생명샘명성교회</span>
+      </a>
+      <button class="nav-toggle" id="navToggle" aria-label="메뉴 열기">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-menu" id="navMenu">
+        <li><a href="../">홈</a></li>
+        <li><a href="../#about">교회소개</a></li>
+        <li><a href="../#worship">예배안내</a></li>
+        <li><a href="../#sermons">설교영상</a></li>
+        <li><a href="./" style="color:var(--primary)">설교말씀</a></li>
+        <li><a href="../#location">오시는 길</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main style="padding-top:100px; padding-bottom:80px;">
+    <div class="container">
+      <div class="section-header">
+        <h2>설교말씀</h2>
+        <div class="section-divider"></div>
+        <p class="section-subtitle">주일 설교 내용을 정리하여 전해드립니다</p>
+      </div>
+      <div class="blog-grid" id="blogGrid">
+        <div class="sermon-loading">
+          <div class="spinner"></div>
+          <p>설교 말씀을 불러오는 중...</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-content">
+        <div class="footer-logo">
+          <img src="../images/logo.jpg" alt="생명샘명성교회">
+          <span>생명샘명성교회</span>
+        </div>
+        <p class="footer-address">경기도 고양시 일산동구 일산로 447 신풍빌딩 4, 5층</p>
+        <p class="footer-copyright">&copy; 2026 생명샘명성교회. All rights reserved.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    document.getElementById('navToggle').addEventListener('click', () => {
+      document.getElementById('navMenu').classList.toggle('active');
+    });
+
+    async function loadAllPosts() {
+      const grid = document.getElementById('blogGrid');
+      try {
+        const res = await fetch('../data/sermons.json');
+        if (!res.ok) throw new Error('No data');
+        const sermons = await res.json();
+        if (!sermons.length) {
+          grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:#A0AEC0;padding:40px 0;">아직 등록된 말씀이 없습니다.</p>';
+          return;
+        }
+        grid.innerHTML = sermons.map(s => `
+          <a href="${s.slug}.html" class="blog-card">
+            <p class="blog-card-date">${s.date}</p>
+            <span class="blog-card-scripture">${s.scripture}</span>
+            <h4>${s.title}</h4>
+            <p>${s.summary}</p>
+          </a>
+        `).join('');
+      } catch {
+        grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:#A0AEC0;padding:40px 0;">설교 말씀이 곧 게시됩니다.</p>';
+      }
+    }
+    loadAllPosts();
+  </script>
+</body>
+</html>
