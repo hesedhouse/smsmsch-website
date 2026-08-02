@@ -46,6 +46,10 @@
           <p>설교 말씀을 불러오는 중...</p>
         </div>
       </div>
+      <div class="blog-more" id="blogMoreWrap" style="display:none;text-align:center;margin-top:32px;">
+        <p id="blogCount" style="color:#6B7280;font-size:0.9rem;margin-bottom:12px;"></p>
+        <button type="button" id="blogMoreBtn" class="btn btn-primary">더보기</button>
+      </div>
     </div>
   </main>
 
@@ -67,8 +71,23 @@
       document.getElementById('navMenu').classList.toggle('active');
     });
 
+    const PAGE_SIZE = 12;   // 한 번에 보여줄 설교 수
+
+    function cardHtml(s) {
+      return `
+          <a href="${s.slug}.html" class="blog-card">
+            <p class="blog-card-date">${s.date}</p>
+            <span class="blog-card-scripture">${s.scripture}</span>
+            <h4>${s.title}</h4>
+            <p>${s.summary}</p>
+          </a>`;
+    }
+
     async function loadAllPosts() {
       const grid = document.getElementById('blogGrid');
+      const moreWrap = document.getElementById('blogMoreWrap');
+      const moreBtn = document.getElementById('blogMoreBtn');
+      const counter = document.getElementById('blogCount');
       try {
         const res = await fetch('../data/sermons.json');
         if (!res.ok) throw new Error('No data');
@@ -77,14 +96,19 @@
           grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:#A0AEC0;padding:40px 0;">아직 등록된 말씀이 없습니다.</p>';
           return;
         }
-        grid.innerHTML = sermons.map(s => `
-          <a href="${s.slug}.html" class="blog-card">
-            <p class="blog-card-date">${s.date}</p>
-            <span class="blog-card-scripture">${s.scripture}</span>
-            <h4>${s.title}</h4>
-            <p>${s.summary}</p>
-          </a>
-        `).join('');
+
+        grid.innerHTML = '';   // 로딩 스피너 제거
+        let shown = 0;
+        function render() {
+          const next = sermons.slice(shown, shown + PAGE_SIZE);
+          grid.insertAdjacentHTML('beforeend', next.map(cardHtml).join(''));
+          shown += next.length;
+          counter.textContent = `전체 ${sermons.length}편 중 ${shown}편`;
+          moreWrap.style.display = shown < sermons.length ? '' : 'none';
+        }
+
+        moreBtn.addEventListener('click', render);
+        render();
       } catch {
         grid.innerHTML = '<p style="grid-column:1/-1;text-align:center;color:#A0AEC0;padding:40px 0;">설교 말씀이 곧 게시됩니다.</p>';
       }

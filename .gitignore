@@ -1,0 +1,17 @@
+# 로컬 STT 작업용 오디오 캐시 (전사 후 자동 삭제되지만 중단 시 남을 수 있음)
+audio_cache/
+transcripts/
+# 개역개정 본문 캐시 — 대한성서공회 저작물이므로 저장소에 올리지 않는다.
+# 필요하면 bible.py가 다시 받아온다.
+bible_cache/
+
+# 작업 로그·백업
+*.log
+*.bak
+*.bak[0-9]
+*.before_rebuild
+_ab_*.txt
+.batch.lock
+__pycache__/
+*.pyc
+.env

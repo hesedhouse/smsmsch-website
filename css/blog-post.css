@@ -139,16 +139,38 @@
   color: var(--primary-dark);
   margin-bottom: 16px;
 }
+/* 구절 본문(개역개정)이 함께 들어가므로 1단으로 편다 */
 .post-scriptures ul {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 .post-scriptures li {
   font-size: 0.9rem;
   color: var(--gray-600);
   line-height: 1.6;
   padding: 4px 0;
+}
+.post-scriptures li strong {
+  display: block;
+  color: var(--primary-dark);
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.post-scriptures .verse {
+  margin: 0 0 6px;
+  padding: 10px 16px;
+  border-left: 3px solid var(--primary, #2C5282);
+  background: var(--gray-50, #F7FAFC);
+  border-radius: 0 6px 6px 0;
+  color: var(--gray-800, #2D3748);
+  font-size: 0.95rem;
+  line-height: 1.8;
+}
+.post-scriptures .verse-note {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--gray-500, #718096);
 }
 
 /* Reflection */

@@ -1,0 +1,57 @@
+name: 설교 일괄 요약 (백필)
+
+# 로컬 GPU에서 뽑아 커밋해둔 transcripts/*.txt 를 읽어
+# 요약·블로그 생성만 수행한다. 음성인식은 하지 않으므로 GPU가 필요 없다.
+# 주간 자동 게시(publish-sermon.yml)와 별개로, 수동 실행 전용이다.
+
+# 실행 방법: Actions 탭 → "설교 일괄 요약 (백필)" → Run workflow →
+#            Branch를 backfill-transcripts 로 선택
+on:
+  workflow_dispatch:
+
+# 기본 토큰이 읽기 전용인 저장소에서도 결과를 푸시할 수 있게 명시한다
+permissions:
+  contents: write
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        # faster-whisper는 설치하지 않는다. 전사본이 캐시에 있으면
+        # transcribe()가 모델을 로드하기 전에 캐시를 반환한다.
+        run: pip install yt-dlp youtube-transcript-api anthropic
+
+      - name: Check transcripts
+        run: |
+          count=$(ls transcripts/*.txt 2>/dev/null | wc -l)
+          echo "전사본 $count 개 발견"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::transcripts/ 가 비어 있습니다. 로컬에서 전사 후 커밋하세요."
+            exit 1
+          fi
+
+      - name: Summarize and publish
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python scripts/publish_sermon.py --backfill --stt
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "새로 게시된 설교가 없습니다"
+          else
+            git commit -m "auto: 설교 말씀 백필 게시 (로컬 STT 전사본 기반)"
+            # 기본 브랜치가 아닌 임시 브랜치에서 돌리므로 대상을 명시한다
+            git push origin HEAD:${{ github.ref_name }}
+          fi

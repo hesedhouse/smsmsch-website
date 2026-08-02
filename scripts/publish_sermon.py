@@ -8,13 +8,20 @@ YouTube 채널에서 새 설교 영상을 감지하고,
   python scripts/publish_sermon.py              # 새 영상만 처리
   python scripts/publish_sermon.py --all        # 최근 5개 전부 처리
   python scripts/publish_sermon.py --video ID   # 특정 영상 처리
+  python scripts/publish_sermon.py --backfill --stt   # 채널 전체 + 자막없으면 로컬 STT
+
+자막이 없는 영상은 --stt를 줘야 로컬 Whisper로 음성인식한다.
+GitHub Actions에는 GPU가 없으므로 주간 자동 게시는 --stt 없이 돌린다.
 
 필요 패키지:
   pip install yt-dlp youtube-transcript-api anthropic
+  pip install faster-whisper nvidia-cublas-cu12 nvidia-cudnn-cu12   # --stt 사용 시
 """
 
+import atexit
 import json
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -28,6 +35,47 @@ BLOG_DIR = SITE_DIR / "blog"
 SERMONS_JSON = DATA_DIR / "sermons.json"
 
 YOUTUBE_CHANNEL_URL = "https://www.youtube.com/@%EC%83%9D%EB%AA%85%EC%83%98%EB%AA%85%EC%84%B1%EA%B5%90%ED%9A%8C%EA%B6%8C%EC%98%81%EC%B2%A0/videos"
+
+
+def atomic_write(path, text):
+    """
+    임시 파일에 쓰고 검증한 뒤 교체한다.
+
+    작업 폴더가 NAS(RaiDrive) 위에 있어서, write_text처럼 원본을 먼저 0으로 자르고
+    쓰는 방식은 쓰기가 유실되면 빈 파일만 남는다. 실제로 sermons.json이 이렇게 날아갔다.
+    """
+    path = Path(path)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    if tmp.read_text(encoding="utf-8") != text:
+        tmp.unlink(missing_ok=True)
+        raise IOError(f"쓰기 검증 실패: {path.name}")
+    os.replace(tmp, path)
+
+
+def load_env():
+    """
+    Z 드라이브의 공용 .env에서 API 키를 읽어 환경변수에 채운다.
+
+    헤세드는 API 키를 `Z:\\hesedcorp\\.env` 한 곳에 모아두므로,
+    거기 넣어두면 회사 PC·집 PC 양쪽에서 그대로 동작한다.
+    이미 환경변수로 설정돼 있으면 그쪽을 우선한다.
+    GitHub Actions에는 이 파일이 없으므로 조용히 넘어간다.
+    """
+    for candidate in (SITE_DIR / ".env", SITE_DIR.parent.parent / ".env"):
+        if not candidate.exists():
+            continue
+        for line in candidate.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key, value = key.strip(), value.strip().strip('"').strip("'")
+            if value and not os.environ.get(key):
+                os.environ[key] = value
+
+
+load_env()
 
 
 def get_recent_videos(limit=5):
@@ -53,12 +101,46 @@ def get_published_ids():
     return {s["videoId"] for s in data}
 
 
-def extract_transcript(video_id):
-    """YouTube 자막 추출"""
+def extract_transcript(video_id, allow_stt=False):
+    """
+    설교 텍스트 확보. (텍스트, 출처) 를 반환한다.
+
+    1순위는 YouTube 자동자막. 자막이 없는 영상은 allow_stt일 때만
+    로컬 Whisper 음성인식으로 넘긴다.
+    """
+    # 전사본이 이미 있으면 자막 API를 건드리지 않는다.
+    # 백필 96편처럼 자막이 없는 게 확실한 영상에 실패할 요청을 반복하면
+    # 시간도 버리고 IP가 속도 제한에 걸릴 수 있다.
+    if allow_stt:
+        from transcribe_local import get_cached
+        cached = get_cached(video_id)
+        if cached:
+            print("        전사 캐시 사용")
+            return cached, "whisper"
+
     from youtube_transcript_api import YouTubeTranscriptApi
-    ytt = YouTubeTranscriptApi()
-    transcript = ytt.fetch(video_id, languages=["ko"])
-    return " ".join(s.text for s in transcript.snippets)
+    try:
+        ytt = YouTubeTranscriptApi()
+        transcript = ytt.fetch(video_id, languages=["ko"])
+        return " ".join(s.text for s in transcript.snippets), "youtube"
+    except Exception as e:
+        if not allow_stt:
+            raise
+        print(f"        자막 없음 ({type(e).__name__}) → 로컬 STT 전환")
+        from transcribe_local import transcribe
+        return transcribe(video_id), "whisper"
+
+
+def is_sermon_video(title):
+    """
+    게시 대상인 설교 영상인지 판별한다.
+
+    이 채널의 설교 영상은 제목이 항상
+      생명샘명성교회 주일예배 / "설교제목" [성경본문] / 2026년 7월 26일
+    형식이다. 따옴표 설교제목이 없는 건 수요기도회·공지 같은 예외로,
+    제목·본문이 비어 목록에서 어색하게 보이므로 제외한다.
+    """
+    return bool(re.search(r'"(.+?)"', title))
 
 
 def parse_title(title):
@@ -95,8 +177,25 @@ def make_slug(date_str, sermon_title):
     return f"{date_part}-{clean[:20]}"
 
 
-def summarize_with_ai(transcript, title, scripture, date_str):
-    """Claude API로 설교 내용 정리"""
+def summarize_with_ai(transcript, title, scripture, date_str, attempts=3):
+    """
+    Claude API로 설교 내용 정리.
+
+    응답 JSON이 깨져 있는 경우가 드물게 있다(본문에 따옴표가 섞이는 등).
+    다시 물으면 대개 정상으로 나오므로 파싱 실패 시 재요청한다.
+    """
+    last_err = None
+    for i in range(attempts):
+        try:
+            return _summarize_once(transcript, title, scripture, date_str)
+        except (json.JSONDecodeError, ValueError) as e:
+            last_err = e
+            if i < attempts - 1:
+                print(f"        JSON 파싱 실패 → 재요청 {i + 2}/{attempts}", flush=True)
+    raise last_err
+
+
+def _summarize_once(transcript, title, scripture, date_str):
     import anthropic
     client = anthropic.Anthropic()
 
@@ -107,11 +206,17 @@ def summarize_with_ai(transcript, title, scripture, date_str):
 1. 구어체/반복/추임새 제거, 읽기 좋은 문어체로 정리
 2. 핵심 메시지 3~5개를 간결하게
 3. 설교 요약을 소제목이 있는 6개 이내 단락으로 구성
-4. 말씀 인용 시 성경 구절을 정확히 표기
+4. **성경 본문을 직접 옮겨 쓰지 말 것.** 기억에 의존한 인용은 조사가 어긋나 오인용이 된다.
+   말씀을 인용해야 할 자리에는 장·절 표기만 쓰고(예: "사도행전 11:21"),
+   본문은 시스템이 개역개정에서 가져와 넣는다.
 5. 설교의 비유와 예화를 살려서 정리
 6. 원문의 30~40% 수준으로 압축
 7. 묵상 포인트 2~3개 (질문 형태)
 8. 인용된 성경 구절 목록 정리
+9. 자막은 음성인식으로 만들어져 고유명사가 틀리게 적혀 있을 수 있다.
+   인명·지명·성경 용어(예: 법괴→법궤, 블랙셋→블레셋, 신해산→시내산, 여하→여호와)는
+   문맥에 맞는 올바른 표기로 바로잡아 쓸 것.
+10. 자막이 불분명해 확신이 서지 않는 내용은 지어내지 말고 생략할 것.
 
 ## 영상 정보
 - 제목: {title}
@@ -126,7 +231,10 @@ def summarize_with_ai(transcript, title, scripture, date_str):
     {{"heading": "소제목", "content": "본문 (HTML 태그 가능: <p>, <blockquote>, <cite>, <strong>)"}},
     ...
   ],
-  "scriptures": ["구절1 — 설명", "구절2 — 설명", ...],
+  "scriptures": [
+    {{"ref": "사도행전 11:21", "note": "이 구절이 설교에서 갖는 의미 한 문장"}},
+    ...
+  ],
   "reflections": ["묵상 질문1", "묵상 질문2", ...]
 }}
 
@@ -170,9 +278,29 @@ def generate_blog_html(slug, sermon_title, scripture, date_str, video_id, ai_dat
             content = f"<p>{content}</p>"
         sections_html += f"        {content}\n"
 
-    scriptures_html = "\n".join(
-        f"          <li>{s}</li>" for s in ai_data["scriptures"]
-    )
+    # 구절 본문은 AI가 아니라 개역개정에서 가져와 넣는다.
+    # 조회에 실패하면 본문 없이 표기와 설명만 남긴다(지어내지 않는다).
+    from bible import lookup
+
+    items = []
+    for s in ai_data["scriptures"]:
+        if isinstance(s, dict):
+            ref, note = s.get("ref", "").strip(), s.get("note", "").strip()
+        else:                                   # 구버전 "구절 — 설명" 문자열
+            ref, _, note = str(s).partition("—")
+            ref, note = ref.strip(), note.strip()
+
+        found = lookup(ref)
+        body = " ".join(t for _, t in found)
+        block = f'          <li>\n            <strong>{ref}</strong>\n'
+        if body:
+            block += f'            <blockquote class="verse">{body}</blockquote>\n'
+        if note:
+            block += f'            <span class="verse-note">{note}</span>\n'
+        block += "          </li>"
+        items.append(block)
+
+    scriptures_html = "\n".join(items)
 
     reflections_html = "\n".join(
         f"          <li>{r}</li>" for r in ai_data["reflections"]
@@ -287,7 +415,7 @@ def generate_blog_html(slug, sermon_title, scripture, date_str, video_id, ai_dat
     return html
 
 
-def update_sermons_json(slug, sermon_title, scripture, date_str, video_id, summary_short):
+def update_sermons_json(slug, sermon_title, scripture, date_str, video_id, summary_short, source="youtube"):
     """sermons.json에 새 항목 추가 (최신순 정렬)"""
     data = []
     if SERMONS_JSON.exists():
@@ -304,20 +432,18 @@ def update_sermons_json(slug, sermon_title, scripture, date_str, video_id, summa
         "scripture": scripture,
         "summary": summary_short,
         "videoId": video_id,
-        "publishedAt": published_at
+        "publishedAt": published_at,
+        "source": source
     }
 
     data.insert(0, new_entry)
     # 날짜순 정렬 (최신 먼저)
     data.sort(key=lambda x: x.get("publishedAt", ""), reverse=True)
 
-    SERMONS_JSON.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2),
-        encoding="utf-8"
-    )
+    atomic_write(SERMONS_JSON, json.dumps(data, ensure_ascii=False, indent=2))
 
 
-def process_video(video_id, title):
+def process_video(video_id, title, allow_stt=False):
     """영상 하나를 처리하는 메인 파이프라인"""
     sermon_title, scripture, date_str = parse_title(title)
     slug = make_slug(date_str, sermon_title)
@@ -330,8 +456,9 @@ def process_video(video_id, title):
 
     # 1. 자막 추출
     print("  [1/4] 자막 추출 중...")
-    transcript = extract_transcript(video_id)
-    print(f"        → {len(transcript):,}자 추출 완료")
+    transcript, source = extract_transcript(video_id, allow_stt=allow_stt)
+    label = "유튜브 자막" if source == "youtube" else "로컬 STT"
+    print(f"        → {len(transcript):,}자 추출 완료 ({label})")
 
     # 2. AI 정리
     print("  [2/4] AI 정리 중...")
@@ -342,20 +469,69 @@ def process_video(video_id, title):
     print("  [3/4] 블로그 포스트 생성 중...")
     html = generate_blog_html(slug, sermon_title, scripture, date_str, video_id, ai_data)
     post_path = BLOG_DIR / f"{slug}.html"
-    post_path.write_text(html, encoding="utf-8")
+    atomic_write(post_path, html)
     print(f"        → {post_path.name} 저장")
 
     # 4. JSON 업데이트
     print("  [4/4] 목록 업데이트 중...")
-    update_sermons_json(slug, sermon_title, scripture, date_str, video_id, ai_data["summary_short"])
+    update_sermons_json(slug, sermon_title, scripture, date_str, video_id, ai_data["summary_short"], source)
     print("        → sermons.json 업데이트 완료")
 
     print(f"\n  ✓ 게시 완료: blog/{slug}.html")
     return slug
 
 
+def _pid_alive(pid):
+    """해당 PID가 아직 살아있는지 확인한다."""
+    try:
+        if os.name == "nt":
+            out = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                capture_output=True, encoding="utf-8", errors="replace",
+            ).stdout
+            return str(pid) in out
+        os.kill(int(pid), 0)
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def acquire_lock():
+    """
+    배치 중복 실행 방지.
+
+    셸 래퍼만 종료되고 파이썬 자식 프로세스가 살아남는 경우가 있는데,
+    그 상태에서 배치를 다시 걸면 두 프로세스가 같은 audio_cache를 두고
+    충돌해 다운로드가 무더기로 실패한다. (실제로 한 번 겪음)
+    """
+    # 작업 폴더가 Z 드라이브(회사 PC·집 PC 공유)에 있으므로 잠금에 호스트명을 함께 적는다.
+    # 다른 PC의 PID를 이 PC 기준으로 검사하면 엉뚱하게 차단하거나 통과시킨다.
+    host = platform.node()
+    lock = SITE_DIR / ".batch.lock"
+
+    if lock.exists():
+        raw = lock.read_text(encoding="utf-8").strip()
+        old_host, _, old_pid = raw.partition("\t")
+        if not old_pid:  # 호스트명 없던 구버전 형식
+            old_host, old_pid = host, raw
+
+        if old_host != host:
+            print(f"  다른 PC({old_host})의 잠금 파일이 남아 있어 무시합니다.")
+        elif _pid_alive(old_pid):
+            print(f"✗ 이미 배치가 실행 중입니다 ({old_host} PID {old_pid}).")
+            print(f"  중단하려면: taskkill /F /PID {old_pid}   (또는 kill {old_pid})")
+            sys.exit(1)
+        else:
+            print(f"  이전 실행(PID {old_pid})의 잠금 파일을 정리합니다.")
+
+    lock.write_text(f"{host}\t{os.getpid()}", encoding="utf-8")
+    atexit.register(lambda: lock.unlink(missing_ok=True))
+
+
 def main():
     args = sys.argv[1:]
+    allow_stt = "--stt" in args
+    acquire_lock()
 
     if "--video" in args:
         idx = args.index("--video")
@@ -371,19 +547,27 @@ def main():
             )
             d = json.loads(result.stdout)
             target = {"id": d["id"], "title": d["title"]}
-        process_video(target["id"], target["title"])
+        process_video(target["id"], target["title"], allow_stt=allow_stt)
         return
 
     print("생명샘명성교회 설교 자동 게시")
     print("=" * 40)
     print("YouTube 채널에서 최근 영상을 확인합니다...\n")
 
+    backfill = "--backfill" in args
     process_all = "--all" in args
-    limit = 200 if process_all else 5
+    limit = 500 if backfill else (200 if process_all else 5)
     videos = get_recent_videos(limit)
     published = get_published_ids()
 
     new_videos = [v for v in videos if v["id"] not in published]
+
+    skipped = [v for v in new_videos if not is_sermon_video(v["title"])]
+    if skipped:
+        print(f"설교 형식이 아니어서 제외: {len(skipped)}개")
+        for v in skipped:
+            print(f"  - {v['title'][:60]}")
+        new_videos = [v for v in new_videos if is_sermon_video(v["title"])]
 
     if not new_videos:
         print("새로운 설교 영상이 없습니다.")
@@ -393,16 +577,48 @@ def main():
     for v in new_videos:
         print(f"  - {v['title']}")
 
-    for v in new_videos:
+    # 1단계: 전사만 먼저 돌린다. GPU로 96편 ≈ 10시간이고 API 키가 필요없는 구간이라,
+    # 요약(2단계)과 분리해두면 요약이 실패해도 다시 전사하지 않는다.
+    if "--transcribe-only" in args:
+        from transcribe_local import transcribe
+        ok, bad = 0, []
+        for i, v in enumerate(new_videos, 1):
+            print(f"\n[{i}/{len(new_videos)}] {v['title'][:70]}", flush=True)
+            try:
+                text = transcribe(v["id"])
+                print(f"        → {len(text):,}자 전사 완료", flush=True)
+                ok += 1
+            except Exception as e:
+                print(f"        ✗ {type(e).__name__}: {e}", flush=True)
+                bad.append((v["id"], v["title"], f"{type(e).__name__}: {e}"))
+        print(f"\n{'='*40}")
+        print(f"전사 완료 {ok}개 / 실패 {len(bad)}개")
+        for vid, title, err in bad:
+            print(f"  ✗ {vid} {title[:50]} — {err}")
+        return
+
+    done, failed = 0, []
+    for i, v in enumerate(new_videos, 1):
+        print(f"\n[{i}/{len(new_videos)}]", end=" ")
         try:
-            process_video(v["id"], v["title"])
+            process_video(v["id"], v["title"], allow_stt=allow_stt)
+            done += 1
         except Exception as e:
             print(f"\n  ✗ 오류: {v['title']}")
-            print(f"    {e}")
+            print(f"    {type(e).__name__}: {e}")
+            failed.append((v["id"], v["title"], f"{type(e).__name__}: {e}"))
 
     print(f"\n{'='*40}")
-    print("모든 처리가 완료되었습니다.")
-    print(f"웹사이트를 배포하면 블로그에 반영됩니다.")
+    print(f"완료 {done}개 / 실패 {len(failed)}개")
+    if failed:
+        # 중단 후 재실행하면 이미 게시된 건 건너뛰므로 이어서 처리된다
+        log = SITE_DIR / "backfill_failed.log"
+        log.write_text(
+            "\n".join(f"{vid}\t{title}\t{err}" for vid, title, err in failed),
+            encoding="utf-8"
+        )
+        print(f"실패 목록: {log.name}")
+    print("웹사이트를 배포하면 블로그에 반영됩니다.")
 
 
 if __name__ == "__main__":
