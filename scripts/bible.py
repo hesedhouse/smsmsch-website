@@ -90,9 +90,13 @@ def _fetch_chapter(code, chap):
     page = re.sub(r"<a class=comment.*?</a>", "", page, flags=re.S)
 
     verses = {}
+    # 절은 보통 </span><br /> 로 끝나지만, 장의 마지막 절만은 <br /> 없이
+    # </div> 로 닫힌다. 이걸 빼면 마지막 절이 페이지 끝까지(검색 UI·자바스크립트까지)
+    # 삼켜서 3000자짜리 "절"이 만들어진다. 각주 div는 위에서 이미 제거했으므로
+    # </div>를 종료 조건으로 써도 본문이 잘리지 않는다.
     for m in re.finditer(
         r'<span class="number">(\d+)(?:&nbsp;|\s)*</span>(.*?)'
-        r'(?=<span><span class="number">|<br\s*/>\s*</div>|\Z)',
+        r'(?=<span><span class="number">|<br\s*/?>|</div>|\Z)',
         page, re.S,
     ):
         text = re.sub(r"<[^>]+>", "", m.group(2))
