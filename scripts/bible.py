@@ -59,16 +59,40 @@ BOOK_MAP = {}
 for _i, (_full, _abbr) in enumerate(NAMES):
     BOOK_MAP[_full] = CODES[_i]
     BOOK_MAP[_abbr] = CODES[_i]
-# 설교 제목에서 흔히 쓰는 변형
+# 설교 제목·AI 출력에서 흔히 나오는 변형.
+# '서'가 빠진 형태와 가톨릭 표기가 실제로 나왔다(야고보 1:26, 필리피서 4:19).
 BOOK_MAP.update({
     "요한일서": "1jn", "요한이서": "2jn", "요한삼서": "3jn",
     "아가서": "sng", "애가": "lam",
+    # '서' 누락
+    "야고보": "jas", "로마": "rom", "히브리": "heb", "갈라디아": "gal",
+    "에베소": "eph", "빌립보": "php", "골로새": "col", "디도": "tit",
+    "빌레몬": "phm", "베드로전": "1pe", "베드로후": "2pe",
+    # 가톨릭 표기
+    "필리피서": "php", "마태오복음": "mat", "마르코복음": "mrk", "루카복음": "luk",
+    "코린토1서": "1co", "코린토2서": "2co", "갈라티아서": "gal", "에페소서": "eph",
+    "콜로새서": "col", "테살로니카1서": "1th", "테살로니카2서": "2th",
+    "티모테오1서": "1ti", "티모테오2서": "2ti", "티토서": "tit",
+    "필레몬서": "phm", "히브리서": "heb", "요한묵시록": "rev", "탈출기": "exo",
 })
+
+# 표시용 표준 표기(개신교). 잘못된 표기를 화면에 그대로 두지 않는다.
+CANON_NAME = {}
+for _i, (_full, _abbr) in enumerate(NAMES):
+    CANON_NAME[CODES[_i]] = _full
+
+
+def canonical_book(name):
+    """'야고보', '필리피서' → '야고보서', '빌립보서'. 모르면 원래 값 반환."""
+    code = BOOK_MAP.get(name)
+    return CANON_NAME.get(code, name) if code else name
 
 # 긴 이름이 짧은 이름에 먹히지 않도록 길이 내림차순으로 매칭한다
 # (예: '예레미야애가'가 '예레미야'로 잘리면 안 된다)
 _BOOK_RE = "|".join(sorted((re.escape(k) for k in BOOK_MAP), key=len, reverse=True))
 REF_RE = re.compile(rf"({_BOOK_RE})\s*(\d+)\s*[:장]\s*([\d\s,~\-–]+)")
+# '빌립보서 1:27~2:4' 처럼 장을 넘어가는 범위
+CROSS_RE = re.compile(rf"({_BOOK_RE})\s*(\d+)\s*:\s*(\d+)\s*[~\-–]\s*(\d+)\s*:\s*(\d+)")
 
 
 def _fetch_chapter(code, chap):
@@ -139,6 +163,29 @@ def lookup(reference, max_verses=12):
     여러 구절이 쉼표로 이어진 표기도 처리한다. 실패하면 빈 리스트.
     """
     results = []
+
+    # 장 경계를 넘는 범위: '빌립보서 1:27~2:4'
+    for m in CROSS_RE.finditer(reference or ""):
+        book, c1, v1, c2, v2 = m.group(1), int(m.group(2)), int(m.group(3)), int(m.group(4)), int(m.group(5))
+        code = BOOK_MAP.get(book)
+        if not code or c2 < c1 or c2 - c1 > 3:
+            continue
+        parts, count = [], 0
+        for ch in range(c1, c2 + 1):
+            try:
+                chapter = _fetch_chapter(code, ch)
+            except Exception:
+                continue
+            lo = v1 if ch == c1 else 1
+            hi = v2 if ch == c2 else max(chapter or [0])
+            for n in range(lo, hi + 1):
+                if n in chapter and count < max_verses:
+                    parts.append(chapter[n]); count += 1
+        if parts:
+            results.append((f"{canonical_book(book)} {c1}:{v1}~{c2}:{v2}", " ".join(parts)))
+    if results:
+        return results
+
     for m in REF_RE.finditer(reference or ""):
         book, chap, spec = m.group(1), int(m.group(2)), m.group(3)
         code = BOOK_MAP.get(book)
@@ -151,7 +198,7 @@ def lookup(reference, max_verses=12):
         nums = _expand(spec)[:max_verses]
         text = " ".join(chapter[n] for n in nums if n in chapter)
         if text:
-            label = f"{book} {chap}:{spec.strip().rstrip(',')}"
+            label = f"{canonical_book(book)} {chap}:{spec.strip().rstrip(',')}"
             results.append((label, text))
     return results
 
