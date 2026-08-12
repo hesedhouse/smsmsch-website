@@ -118,17 +118,26 @@ def extract_transcript(video_id, allow_stt=False):
             print("        전사 캐시 사용")
             return cached, "whisper"
 
+    import time
     from youtube_transcript_api import YouTubeTranscriptApi
-    try:
-        ytt = YouTubeTranscriptApi()
-        transcript = ytt.fetch(video_id, languages=["ko"])
-        return " ".join(s.text for s in transcript.snippets), "youtube"
-    except Exception as e:
-        if not allow_stt:
-            raise
-        print(f"        자막 없음 ({type(e).__name__}) → 로컬 STT 전환")
-        from transcribe_local import transcribe
-        return transcribe(video_id), "whisper"
+
+    max_retries = 4
+    for attempt in range(max_retries):
+        try:
+            ytt = YouTubeTranscriptApi()
+            transcript = ytt.fetch(video_id, languages=["ko"])
+            return " ".join(s.text for s in transcript.snippets), "youtube"
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait = (attempt + 1) * 15  # 15초, 30초, 45초
+                print(f"        자막 추출 실패 (시도 {attempt+1}/{max_retries}) → {wait}초 후 재시도")
+                time.sleep(wait)
+            else:
+                if not allow_stt:
+                    raise
+                print(f"        자막 없음 ({type(e).__name__}) → 로컬 STT 전환")
+                from transcribe_local import transcribe
+                return transcribe(video_id), "whisper"
 
 
 def is_sermon_video(title):
