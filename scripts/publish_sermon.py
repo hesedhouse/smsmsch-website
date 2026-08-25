@@ -101,12 +101,53 @@ def get_published_ids():
     return {s["videoId"] for s in data}
 
 
+def _whisper_api_transcribe(video_id):
+    """
+    yt-dlp로 오디오를 다운로드한 뒤 OpenAI Whisper API로 전사한다.
+
+    YouTube 자막 API가 클라우드 IP를 차단하는 경우의 폴백.
+    yt-dlp는 영상 목록 조회에서도 사용하므로 IP 차단을 받지 않는다.
+    Whisper API 제한: 파일당 25MB. 설교(30~40분)의 64kbps m4a는 약 15MB로 안전하다.
+    """
+    import tempfile
+    import openai
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        audio_path = os.path.join(tmpdir, f"{video_id}.m4a")
+        url = f"https://www.youtube.com/watch?v={video_id}"
+
+        # 64kbps m4a로 다운로드 (25MB 제한 대비)
+        result = subprocess.run(
+            [sys.executable, "-m", "yt_dlp",
+             "-f", "worstaudio[ext=m4a]/worstaudio",
+             "-o", audio_path,
+             "--no-playlist", url],
+            capture_output=True, encoding="utf-8"
+        )
+        if result.returncode != 0 or not os.path.exists(audio_path):
+            raise RuntimeError(f"오디오 다운로드 실패: {result.stderr[:200]}")
+
+        size_mb = os.path.getsize(audio_path) / (1024 * 1024)
+        print(f"        오디오 다운로드 완료 ({size_mb:.1f}MB)")
+
+        client = openai.OpenAI()
+        with open(audio_path, "rb") as f:
+            resp = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=f,
+                language="ko",
+                response_format="text"
+            )
+        return resp
+
+
 def extract_transcript(video_id, allow_stt=False):
     """
     설교 텍스트 확보. (텍스트, 출처) 를 반환한다.
 
-    1순위는 YouTube 자동자막. 자막이 없는 영상은 allow_stt일 때만
-    로컬 Whisper 음성인식으로 넘긴다.
+    1순위: YouTube 자동자막 (무료, 빠름)
+    2순위: yt-dlp 오디오 다운로드 + OpenAI Whisper API (유료, IP 차단 회피)
+    3순위: 로컬 Whisper STT (--stt 플래그 + GPU 필요)
     """
     # 전사본이 이미 있으면 자막 API를 건드리지 않는다.
     # 백필 96편처럼 자막이 없는 게 확실한 영상에 실패할 요청을 반복하면
@@ -121,23 +162,36 @@ def extract_transcript(video_id, allow_stt=False):
     import time
     from youtube_transcript_api import YouTubeTranscriptApi
 
-    max_retries = 4
+    max_retries = 2  # IP 차단이면 재시도해봐야 같은 결과이므로 2회로 축소
+    yt_error = None
     for attempt in range(max_retries):
         try:
             ytt = YouTubeTranscriptApi()
             transcript = ytt.fetch(video_id, languages=["ko"])
             return " ".join(s.text for s in transcript.snippets), "youtube"
         except Exception as e:
+            yt_error = e
             if attempt < max_retries - 1:
-                wait = (attempt + 1) * 15  # 15초, 30초, 45초
+                wait = 10
                 print(f"        자막 추출 실패 (시도 {attempt+1}/{max_retries}) → {wait}초 후 재시도")
                 time.sleep(wait)
-            else:
-                if not allow_stt:
-                    raise
-                print(f"        자막 없음 ({type(e).__name__}) → 로컬 STT 전환")
-                from transcribe_local import transcribe
-                return transcribe(video_id), "whisper"
+
+    # YouTube 자막 실패 → Whisper API 폴백
+    if os.environ.get("OPENAI_API_KEY"):
+        print(f"        YouTube 자막 실패 ({type(yt_error).__name__}) → Whisper API 전환")
+        try:
+            text = _whisper_api_transcribe(video_id)
+            return text, "whisper-api"
+        except Exception as whisper_err:
+            print(f"        Whisper API도 실패: {type(whisper_err).__name__}: {whisper_err}")
+
+    # Whisper API도 안 되면 로컬 STT 시도
+    if allow_stt:
+        print(f"        → 로컬 STT 전환")
+        from transcribe_local import transcribe
+        return transcribe(video_id), "whisper"
+
+    raise yt_error
 
 
 def is_sermon_video(title):

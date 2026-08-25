@@ -17,11 +17,12 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install yt-dlp youtube-transcript-api anthropic
+        run: pip install yt-dlp youtube-transcript-api anthropic openai
 
       - name: Run publish script
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python scripts/publish_sermon.py
 
       - name: Commit and push
