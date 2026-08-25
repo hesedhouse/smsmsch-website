@@ -62,7 +62,7 @@ def load_env():
     이미 환경변수로 설정돼 있으면 그쪽을 우선한다.
     GitHub Actions에는 이 파일이 없으므로 조용히 넘어간다.
     """
-    for candidate in (SITE_DIR / ".env", SITE_DIR.parent.parent / ".env"):
+    for candidate in (SITE_DIR / ".env", SITE_DIR.parent.parent / ".env", Path(r"Z:\hesedcorp\.env")):
         if not candidate.exists():
             continue
         for line in candidate.read_text(encoding="utf-8").splitlines():
@@ -542,7 +542,7 @@ def process_video(video_id, title, allow_stt=False):
     update_sermons_json(slug, sermon_title, scripture, date_str, video_id, ai_data["summary_short"], source)
     print("        → sermons.json 업데이트 완료")
 
-    print(f"\n  ✓ 게시 완료: blog/{slug}.html")
+    print(f"\n  [OK] 게시 완료: blog/{slug}.html")
     return slug
 
 
@@ -583,7 +583,7 @@ def acquire_lock():
         if old_host != host:
             print(f"  다른 PC({old_host})의 잠금 파일이 남아 있어 무시합니다.")
         elif _pid_alive(old_pid):
-            print(f"✗ 이미 배치가 실행 중입니다 ({old_host} PID {old_pid}).")
+            print(f"[X] 이미 배치가 실행 중입니다 ({old_host} PID {old_pid}).")
             print(f"  중단하려면: taskkill /F /PID {old_pid}   (또는 kill {old_pid})")
             sys.exit(1)
         else:
@@ -654,12 +654,12 @@ def main():
                 print(f"        → {len(text):,}자 전사 완료", flush=True)
                 ok += 1
             except Exception as e:
-                print(f"        ✗ {type(e).__name__}: {e}", flush=True)
+                print(f"        [X] {type(e).__name__}: {e}", flush=True)
                 bad.append((v["id"], v["title"], f"{type(e).__name__}: {e}"))
         print(f"\n{'='*40}")
         print(f"전사 완료 {ok}개 / 실패 {len(bad)}개")
         for vid, title, err in bad:
-            print(f"  ✗ {vid} {title[:50]} — {err}")
+            print(f"  [X] {vid} {title[:50]} — {err}")
         return
 
     done, failed = 0, []
@@ -669,7 +669,7 @@ def main():
             process_video(v["id"], v["title"], allow_stt=allow_stt)
             done += 1
         except Exception as e:
-            print(f"\n  ✗ 오류: {v['title']}")
+            print(f"\n  [X] 오류: {v['title']}")
             print(f"    {type(e).__name__}: {e}")
             failed.append((v["id"], v["title"], f"{type(e).__name__}: {e}"))
 

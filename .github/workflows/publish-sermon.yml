@@ -1,10 +1,10 @@
 name: 설교 자동 게시
 
 on:
-  schedule:
-    # 매주 월요일 KST 오전 9시 (UTC 일요일 밤 12시)
-    - cron: '0 0 * * 1'
-  workflow_dispatch: # 수동 실행도 가능
+  # schedule 비활성화 — 로컬 PC에서 실행으로 전환 (2026-08-25)
+  # YouTube transcript API가 클라우드 IP를 차단하므로 로컬에서 실행
+  # - cron: '0 0 * * 1'
+  workflow_dispatch: # 수동 실행은 유지 (필요 시 테스트용)
 
 jobs:
   publish:
