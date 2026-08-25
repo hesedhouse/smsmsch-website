@@ -261,11 +261,13 @@ def summarize_with_ai(transcript, title, scripture, date_str, attempts=3):
 
 
 def _summarize_once(transcript, title, scripture, date_str):
-    import anthropic
-    client = anthropic.Anthropic()
-
+    """
+    Claude Code CLI(`claude -p`)로 설교 요약. Claude Max 구독으로 API 비용 없음.
+    GitHub Actions 등 claude CLI가 없는 환경에서는 Anthropic API로 폴백.
+    """
     prompt = f"""당신은 교회 설교를 정리하는 전문 편집자입니다.
 아래는 유튜브 설교 영상에서 추출한 자막 텍스트입니다. 아래 JSON 형식으로 정리해 주세요.
+반드시 JSON만 출력하세요. 다른 설명은 붙이지 마세요.
 
 ## 정리 규칙
 1. 구어체/반복/추임새 제거, 읽기 좋은 문어체로 정리
@@ -307,13 +309,27 @@ def _summarize_once(transcript, title, scripture, date_str):
 {transcript}
 """
 
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=4000,
-        messages=[{"role": "user", "content": prompt}]
-    )
+    import shutil
+    import tempfile
 
-    text = response.content[0].text
+    # 로컬: Claude Code CLI 사용 (Claude Max, 무료)
+    if shutil.which("claude"):
+        result = subprocess.run(
+            ["claude", "-p", "--model", "haiku", "--bare", prompt],
+            capture_output=True, encoding="utf-8", timeout=120
+        )
+        text = result.stdout
+    else:
+        # GitHub Actions 등 CLI 없는 환경: Anthropic API 폴백
+        import anthropic
+        client = anthropic.Anthropic()
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=4000,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        text = response.content[0].text
+
     # JSON 부분만 추출
     m = re.search(r'\{[\s\S]+\}', text)
     if m:
