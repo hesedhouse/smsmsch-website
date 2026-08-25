@@ -177,8 +177,10 @@ def extract_transcript(video_id, allow_stt=False):
                 time.sleep(wait)
 
     # YouTube 자막 실패 → Whisper API 폴백
-    if os.environ.get("OPENAI_API_KEY"):
-        print(f"        YouTube 자막 실패 ({type(yt_error).__name__}) → Whisper API 전환")
+    has_openai = bool(os.environ.get("OPENAI_API_KEY"))
+    print(f"        YouTube 자막 {max_retries}회 실패 → OPENAI_API_KEY 존재: {has_openai}", flush=True)
+    if has_openai:
+        print(f"        YouTube 자막 실패 ({type(yt_error).__name__}) → Whisper API 전환", flush=True)
         try:
             text = _whisper_api_transcribe(video_id)
             return text, "whisper-api"
