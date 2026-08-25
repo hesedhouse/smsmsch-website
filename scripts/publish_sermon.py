@@ -313,12 +313,15 @@ def _summarize_once(transcript, title, scripture, date_str):
     import tempfile
 
     # 로컬: Claude Code CLI 사용 (Claude Max, 무료)
-    if shutil.which("claude"):
+    claude_path = shutil.which("claude.cmd") or shutil.which("claude")
+    if claude_path:
+        # 프롬프트가 길어 명령줄 제한에 걸리므로 stdin으로 전달
         result = subprocess.run(
-            ["claude", "-p", "--model", "haiku", "--bare", prompt],
-            capture_output=True, encoding="utf-8", timeout=120
+            [claude_path, "-p", "--model", "haiku"],
+            input=prompt.encode("utf-8"),
+            capture_output=True, timeout=180,
         )
-        text = result.stdout
+        text = result.stdout.decode("utf-8", errors="replace")
     else:
         # GitHub Actions 등 CLI 없는 환경: Anthropic API 폴백
         import anthropic
