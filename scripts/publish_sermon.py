@@ -314,29 +314,14 @@ def _summarize_once(transcript, title, scripture, date_str):
 {transcript}
 """
 
-    import shutil
-    import tempfile
-
-    # 로컬: Claude Code CLI 사용 (Claude Max, 무료)
-    claude_path = shutil.which("claude.cmd") or shutil.which("claude")
-    if claude_path:
-        # 프롬프트가 길어 명령줄 제한에 걸리므로 stdin으로 전달
-        result = subprocess.run(
-            [claude_path, "-p", "--model", "haiku"],
-            input=prompt.encode("utf-8"),
-            capture_output=True, timeout=180,
-        )
-        text = result.stdout.decode("utf-8", errors="replace")
-    else:
-        # GitHub Actions 등 CLI 없는 환경: Anthropic API 폴백
-        import anthropic
-        client = anthropic.Anthropic()
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=4000,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        text = response.content[0].text
+    import anthropic
+    client = anthropic.Anthropic()
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=4000,
+        messages=[{"role": "user", "content": prompt}]
+    )
+    text = response.content[0].text
 
     # JSON 부분만 추출
     m = re.search(r'\{[\s\S]+\}', text)
