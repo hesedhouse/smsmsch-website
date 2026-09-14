@@ -28,6 +28,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+# Windows cp949 인코딩 에러 방지
+if sys.stdout.encoding and sys.stdout.encoding.lower().startswith('cp'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
 # ===== 설정 =====
 SITE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = SITE_DIR / "data"
@@ -205,7 +210,7 @@ def is_sermon_video(title):
     형식이다. 따옴표 설교제목이 없는 건 수요기도회·공지 같은 예외로,
     제목·본문이 비어 목록에서 어색하게 보이므로 제외한다.
     """
-    return bool(re.search(r'"(.+?)"', title))
+    return bool(re.search(r'["\u201c](.+?)["\u201d]', title))
 
 
 def parse_title(title):
@@ -215,7 +220,7 @@ def parse_title(title):
     scripture = ""
     date_str = ""
 
-    m = re.search(r'"(.+?)"', title)
+    m = re.search(r'["\u201c](.+?)["\u201d]', title)
     if m:
         sermon_title = m.group(1)
 
@@ -349,6 +354,12 @@ def _summarize_once(transcript, title, scripture, date_str):
 
 def generate_blog_html(slug, sermon_title, scripture, date_str, video_id, ai_data):
     """블로그 포스트 HTML 생성"""
+    # AI 응답에 키가 빠져 있을 경우 기본값 처리
+    ai_data.setdefault("key_messages", [])
+    ai_data.setdefault("sections", [])
+    ai_data.setdefault("scriptures", [])
+    ai_data.setdefault("reflections", [])
+
     key_messages_html = "\n".join(
         f"          <li>{msg}</li>" for msg in ai_data["key_messages"]
     )
