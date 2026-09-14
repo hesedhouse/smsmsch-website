@@ -569,7 +569,7 @@ def process_video(video_id, title, allow_stt=False):
 
     # 4. JSON 업데이트
     print("  [4/4] 목록 업데이트 중...")
-    update_sermons_json(slug, sermon_title, scripture, date_str, video_id, ai_data["summary_short"], source)
+    update_sermons_json(slug, sermon_title, scripture, date_str, video_id, ai_data.get("summary_short", ""), source)
     print("        → sermons.json 업데이트 완료")
 
     print(f"\n  [OK] 게시 완료: blog/{slug}.html")
