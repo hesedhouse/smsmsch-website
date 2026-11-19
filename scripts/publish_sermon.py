@@ -372,6 +372,8 @@ def generate_blog_html(slug, sermon_title, scripture, date_str, video_id, ai_dat
 
         found = lookup(ref)
         body = " ".join(t for _, t in found)
+        if ref and not body:   # 표기만 남는다. 여러 곳이 한꺼번에 뜨면 성서공회 접속 문제를 의심할 것
+            print(f"        [!] 성경 본문 조회 실패: {ref}", flush=True)
         block = f'          <li>\n            <strong>{ref}</strong>\n'
         if body:
             block += f'            <blockquote class="verse">{body}</blockquote>\n'

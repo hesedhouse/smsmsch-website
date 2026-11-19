@@ -12,8 +12,11 @@ AI에게 구절을 외워 쓰게 하면 조사가 어긋난 오인용이 나오�
 
 import html as _html
 import json
+import os
 import re
+import subprocess
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -98,6 +101,31 @@ REF_RE = re.compile(rf"({_BOOK_RE})\s*(\d+)\s*[:장]\s*([\d\s,~\-–]+)")
 CROSS_RE = re.compile(rf"({_BOOK_RE})\s*(\d+)\s*:\s*(\d+)\s*[~\-–]\s*(\d+)\s*:\s*(\d+)")
 
 
+USER_AGENT = "Mozilla/5.0 (sermon-archive)"
+
+
+def _download(url):
+    """
+    페이지를 받는다.
+
+    성서공회 서버는 중간 인증서를 보내 주지 않는다. 그래서 이 사이트를 한 번도 열어 본 적 없는
+    윈도우 PC에서는 파이썬이 인증서 검증에 실패한다(CERTIFICATE_VERIFY_FAILED) — 실제로 새 PC에서
+    구절 본문이 통째로 빠진 글이 게시됐다(2026-11-19). 윈도우의 curl.exe 는 빠진 중간 인증서를
+    스스로 받아 검증하므로 그쪽으로 한 번 더 시도한다. 검증을 끄지는 않는다.
+    """
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.read().decode("utf-8", "replace")
+    except urllib.error.URLError as e:
+        if os.name != "nt" or "CERTIFICATE_VERIFY_FAILED" not in str(e):
+            raise
+        out = subprocess.run(["curl.exe", "-sS", "--fail", "--max-time", "30", "-A", USER_AGENT, url], capture_output=True)
+        if out.returncode != 0 or not out.stdout:
+            raise
+        return out.stdout.decode("utf-8", "replace")
+
+
 def _fetch_chapter(code, chap):
     """한 장을 받아 {절번호: 본문} 으로 파싱한다. 디스크에 캐시한다."""
     CACHE_DIR.mkdir(exist_ok=True)
@@ -105,12 +133,7 @@ def _fetch_chapter(code, chap):
     if cache.exists():
         return {int(k): v for k, v in json.loads(cache.read_text(encoding="utf-8")).items()}
 
-    req = urllib.request.Request(
-        READ_URL.format(code=code, chap=chap),
-        headers={"User-Agent": "Mozilla/5.0 (sermon-archive)"},
-    )
-    with urllib.request.urlopen(req, timeout=30) as r:
-        page = r.read().decode("utf-8", "replace")
+    page = _download(READ_URL.format(code=code, chap=chap))
 
     # 각주는 본문이 아니다: 마커(<a class=comment>)와 숨김 팝업(<div class=D2>)을 먼저 제거
     page = re.sub(r"<div[^>]*class=D2[^>]*>.*?</div>", "", page, flags=re.S)
